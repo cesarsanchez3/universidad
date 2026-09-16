@@ -3,22 +3,35 @@
 @section('content')
 <div class="container mt-4">
 
-    <h2 class="mb-4 text-center">{{ $centro->telebachillerato }}</h2>
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+    <h2 class="mb-0">{{ $centro->telebachillerato ?? 'Centro' }}</h2>
+    <a href="{{ url('/centros') }}" class="btn btn-outline-secondary btn-sm">← Regresar</a>
+    </div>
 
     <div class="card shadow mb-4">
         <div class="card-body">
-
-            <p><strong>Clave:</strong> {{ $centro->clave }}</p>
-            <p><strong>Clave CT:</strong> {{ $centro->clave_ct }}</p>
-            <p><strong>Municipio:</strong> {{ $centro->municipio }}</p>
-            <p><strong>Encargado:</strong> {{ $centro->encargado }}</p>
-            <p><strong>Correo:</strong> {{ $centro->correo }}</p>
-
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <p class="mb-2"><strong>Clave:</strong> {{ $centro->clave ?? 'No disponible' }}</p>
+                    <p class="mb-2"><strong>Clave CT:</strong> {{ $centro->clave_ct ?? 'No disponible' }}</p>
+                </div>
+                <div class="col-md-6">
+                    <p class="mb-2"><strong>Municipio:</strong> {{ $centro->municipio ?? 'No disponible' }}</p>
+                    <p class="mb-2"><strong>Encargado:</strong> {{ $centro->encargado ?? 'No disponible' }}</p>
+                    <p class="mb-2"><strong>Correo:</strong> {{ $centro->correo ?? 'No disponible' }}</p>
+                </div>
+                </div>
         </div>
     </div>
 
-    <h4>Alumnos del Centro</h4>
+    <h4 class="mb-3">Alumnos del Centro</h4>
 
+@if(alumnos->isEmpty())
+<div class="alert alert-info" role="alert">
+    No hay alumnos registrados en este centro.
+</div>
+@else
+<div class="table-responsive">
     <table class="table table-striped">
         <thead>
             <tr>
@@ -40,5 +53,7 @@
         </tbody>
     </table>
 
+</div>
+@endif
 </div>
 @endsection
