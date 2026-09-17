@@ -30,6 +30,10 @@ Route::get('/alumnos', [AlumnosController::class, 'index']);
 Route::get('/alumnos/list', [AlumnosController::class, 'list']);
 // Detalle de alumno
 Route::get('/alumnos/{id}', [AlumnosController::class, 'detalle']);
+// Actualizar alumno
+Route::put('/alumnos/{id}', [AlumnosController::class, 'update']);
+// Servicio JSON o API para obtener el detalle de un alumno
+Route::get('/api/alumnos/{id}', [AlumnosController::class, 'apiDetalle']);
 
 /* ============================================================
    CALIFICACIONES

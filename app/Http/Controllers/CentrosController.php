@@ -11,62 +11,69 @@ class CentrosController extends Controller
     // Vista principal con listado completo
     public function index()
     {
-        $centros = DB::select('SELECT * FROM centros ORDER BY telebachillerato ASC');
+        $centros = DB::table('centros')
+            ->orderBy('telebachillerato', 'asc')
+            ->get();
+
         return view('centros.index', compact('centros'));
     }
 
     // Listado con paginación y búsqueda
     public function list(Request $request)
     {
-        $search = $request->search ?? '';
-        $page   = max(1, (int) ($request->page ?? 1));
-        $limit  = 10;
+        $search = trim((string) ($request->search ?? ''));
+        $page = max(1, (int) ($request->page ?? 1));
+        $limit = 10;
         $offset = ($page - 1) * $limit;
 
-        $searchLike = "%$search%";
-        $centros = DB::select("
-            SELECT * FROM centros
-            WHERE clave LIKE ? OR nombre LIKE ? OR telebachillerato LIKE ? OR municipio LIKE ?
-            ORDER BY telebachillerato ASC
-            LIMIT ?, ?
-        ", [$searchLike, $searchLike, $searchLike,$offset, $limit]);
-        
+        $query = DB::table('centros');
 
-        $total = DB::selectOne("
-            SELECT COUNT(*) AS total FROM centros
-            WHERE clave LIKE ? OR telebachillerato LIKE ? OR municipio LIKE ?
-        ", [$searchLike, $searchLike, $searchLike]);
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->where('clave', 'like', "%{$search}%")
+                  ->orWhere('telebachillerato', 'like', "%{$search}%")
+                  ->orWhere('municipio', 'like', "%{$search}%")
+                  ->orWhere('encargado', 'like', "%{$search}%");
+            });
+        }
+
+        $centros = $query
+            ->orderBy('telebachillerato', 'asc')
+            ->offset($offset)
+            ->limit($limit)
+            ->get();
+
+        $total = $query->count();
 
         return response()->json([
             'data' => $centros,
-            'total' => $total->total
+            'total' => $total
         ]);
     }
 
     // Detalle de centro
     public function detalle($id)
     {
-        if(!is_numeric($id)) {
+        if (!is_numeric($id)) {
             abort(400, 'ID inválido');
         }
 
-        $centro = DB::selectOne("SELECT * FROM centros WHERE id = ?", [$id]);
+        $centro = DB::table('centros')->where('id', $id)->first();
 
-        if(!$centro) {
+        if (!$centro) {
             abort(404, 'Centro no encontrado');
         }
 
-        $alumnos = DB::select("
-            SELECT id, matricula, nombre, paterno, materno
-            FROM alumnos
-            WHERE centro_id = ?
-            ORDER BY nombre ASC
-        ", [$id]);
+        $alumnos = DB::table('alumnos')
+            ->select('id', 'matricula', 'nombre', 'paterno', 'materno')
+            ->where('centro_id', $id)
+            ->orderBy('nombre', 'asc')
+            ->get();
 
         return view('centros.detalle', compact('centro', 'alumnos'));
     }
 
-    // Importación de centros desde CSV, or Excel
+    // Importación de centros desde archivo CSV o Excel
     public function importar(Request $request)
     {
         if (!$request->hasFile('csv') && !$request->hasFile('excel')) {
@@ -76,21 +83,20 @@ class CentrosController extends Controller
         }
 
         $file = $request->file('csv') ?? $request->file('excel');
+        $extension = strtolower($file->getClientOriginalExtension());
 
         try {
-            if($extension === 'csv') {
+            if ($extension === 'csv') {
                 $reader = IOFactory::createReader('Csv');
                 $reader->setDelimiter(',');
                 $reader->setEnclosure('"');
                 $reader->setInputEncoding('UTF-8');
-               
             } else {
                 $reader = IOFactory::createReader('Xlsx');
             }
 
             $spreadsheet = $reader->load($file->getPathname());
         } catch (\Exception $e) {
-
             DB::table('import_log')->insert([
                 'tipo' => 'centros',
                 'mensaje' => 'Archivo inválido: ' . $e->getMessage(),
@@ -98,62 +104,79 @@ class CentrosController extends Controller
             ]);
 
             return response()->json([
-                'error' => 'El archivo no es valido.',
+                'error' => 'El archivo no es válido.',
                 'detalle' => $e->getMessage()
             ], 400);
         }
-        $rows = $spreadsheet->getActiveSheet()->toArray();
 
+        $rows = $spreadsheet->getActiveSheet()->toArray();
         $insertados = 0;
         $errores = [];
 
-        foreach ($rows as $index => $row) {
+        DB::beginTransaction();
 
-            // Saltar encabezado
-            if ($index === 0) continue;
+        try {
+            foreach ($rows as $index => $row) {
+                if ($index === 0) continue;
 
-            $clave      = trim($row[0]);
-            $telebachillerato = trim($row[1]);
-            $clave_ct   = trim($row[2]);
-            $municipio  = trim($row[3]);
-            $encargado  = trim($row[4]);
-            $correo     = trim($row[5]);
+                // Salta filas vacías
+                if (empty(array_filter($row, fn($value) => $value !== null && trim((string) $value) !== ''))) {
+                    continue;
+                }
 
-            // Validación: clave vacía
-            if ($clave === "") {
-                $errores[] = "Fila $index: Clave vacia.";
-                continue;
+                if (count($row) < 6) {
+                    $errores[] = "Fila $index: Número de columnas inválido.";
+                    continue;
+                }
+
+                $clave = trim((string) $row[0]);
+                $telebachillerato = trim((string) $row[1]);
+                $clave_ct = trim((string) $row[2]);
+                $municipio = trim((string) $row[3]);
+                $encargado = trim((string) $row[4]);
+                $correo = trim((string) $row[5]);
+
+                if ($clave === '') {
+                    $errores[] = "Fila $index: Clave vacía.";
+                    continue;
+                }
+
+                if ($telebachillerato === '') {
+                    $errores[] = "Fila $index: Telebachillerato vacío.";
+                    continue;
+                }
+
+                $existe = DB::table('centros')
+                    ->whereRaw('LOWER(clave) = ?', [strtolower($clave)])
+                    ->exists();
+
+                if ($existe) {
+                    $errores[] = "Fila $index: Centro duplicado ($clave).";
+                    continue;
+                }
+
+                DB::table('centros')->insert([
+                    'clave' => $clave,
+                    'telebachillerato' => $telebachillerato,
+                    'clave_ct' => $clave_ct !== '' ? $clave_ct : null,
+                    'municipio' => $municipio !== '' ? $municipio : null,
+                    'encargado' => $encargado !== '' ? $encargado : null,
+                    'correo' => $correo !== '' ? $correo : null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $insertados++;
             }
 
-            
-            // Validación: telebachillerato vacío
-            if ($telebachillerato === "") {
-                $errores[] = "Fila $index: Telebachillerato vacio.";
-                continue;
-            }
-            
-            // Validación: duplicado por clave
-            $existe = DB::selectOne("SELECT id FROM centros WHERE clave = ?", [$clave]);
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
 
-            if ($existe) {
-                $errores[] = "Fila $index: Centro duplicado ($clave).";
-                continue;
-            }
-
-            // Inserción manual sin ORM
-            DB::insert("
-                INSERT INTO centros (clave, telebachillerato, clave_ct, municipio, encargado, correo, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, NOW())
-            ", [
-                $clave,
-                $telebachillerato,
-                $clave_ct,
-                $municipio,
-                $encargado,
-                $correo
-            ]);
-
-            $insertados++;
+            return response()->json([
+                'error' => 'Ocurrió un error al importar centros.',
+                'detalle' => $e->getMessage()
+            ], 500);
         }
 
         return response()->json([

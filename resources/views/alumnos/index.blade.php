@@ -17,7 +17,7 @@
                 <thead>
                     <tr>
                         <th>Matricula</th>
-                        <th>Telebachillerato</th>
+                        <th>Nombre</th>
                         <th>Centro</th>
                         <th>Acciones</th>
                     </tr>

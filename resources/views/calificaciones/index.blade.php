@@ -19,6 +19,16 @@
             </div>
 
             {{-- Calificaciones --}}
+
+            <div class="mb-3">
+                <label class="form-label fw-bold">Materia</label>
+                <select id="materia" class="form-select">
+                    <option value="">Seleccione una materia...</option>
+                     @foreach($materias as $materia)
+                        <option value="{{ $materia->id }}">{{ $materia->nombre }}</option>
+                    @endforeach
+                </select>
+            </div>
             <div class="row">
                 <div class="col-md-4 mb-3">
                     <label class="form-label fw-bold">Parcial 1</label>
@@ -90,6 +100,7 @@ document.getElementById('guardar').addEventListener('click', async () => {
     mensaje.classList.add('d-none');
 
     const alumno = document.getElementById('alumno').value;
+    const materia = document.getElementById('materia').value; // ID de la materia, por ahora fijo
     const p1 = document.getElementById('p1').value;
     const p2 = document.getElementById('p2').value;
     const p3 = document.getElementById('p3').value;
@@ -110,6 +121,13 @@ document.getElementById('guardar').addEventListener('click', async () => {
         return;
     }
 
+    if(!materia) {
+        mensaje.classList.remove('d-none', 'alert-success');
+        mensaje.classList.add('alert-danger');
+        mensaje.innerHTML = "Debe seleccionar una materia";
+        return;
+    }
+
     const response = await fetch('/calificaciones/save', {
         method: 'POST',
         headers: {
@@ -118,6 +136,7 @@ document.getElementById('guardar').addEventListener('click', async () => {
         },
         body: JSON.stringify({
             alumno_id: alumno,
+            materia_id: materia,
             p1: p1,
             p2: p2,
             p3: p3,

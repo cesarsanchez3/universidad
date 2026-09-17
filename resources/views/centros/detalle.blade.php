@@ -26,7 +26,7 @@
 
     <h4 class="mb-3">Alumnos del Centro</h4>
 
-@if(alumnos->isEmpty())
+@if($alumnos->isEmpty())
 <div class="alert alert-info" role="alert">
     No hay alumnos registrados en este centro.
 </div>

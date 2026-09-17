@@ -3,14 +3,13 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use PhpOffice\PhpSpreadsheet\IOFactory;
 use Illuminate\Support\Facades\DB;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class ImportadorCompletoController extends Controller
 {
     public function importarTodo(Request $request)
     {
-        //Validacion de archivos
         if (!$request->hasFile('CentrosTBC') || !$request->hasFile('AlumnosTBC')) {
             return response()->json([
                 'error' => 'Debes subir ambos archivos: Centros y Alumnos.'
@@ -29,15 +28,12 @@ class ImportadorCompletoController extends Controller
         ]);
     }
 
-    // ---------------------------------------------------------
-    // IMPORTADOR DE CENTROS
-    // ---------------------------------------------------------
     private function importarCentros($file)
     {
         try {
             $extension = strtolower($file->getClientOriginalExtension());
-            
-            if($extension === 'csv') {
+
+            if ($extension === 'csv') {
                 $reader = IOFactory::createReader('Csv');
                 $reader->setDelimiter(',');
                 $reader->setEnclosure('"');
@@ -45,10 +41,9 @@ class ImportadorCompletoController extends Controller
             } else {
                 $reader = IOFactory::createReader('Xlsx');
             }
-            
+
             $spreadsheet = $reader->load($file->getPathname());
             $rows = $spreadsheet->getActiveSheet()->toArray();
-
         } catch (\Exception $e) {
             return [
                 'insertados' => 0,
@@ -66,45 +61,64 @@ class ImportadorCompletoController extends Controller
         $insertados = 0;
         $errores = [];
 
-        foreach ($rows as $index => $row) {
+        DB::beginTransaction();
 
-            if ($index === 0) continue;
+        try {
+            foreach ($rows as $index => $row) {
+                if ($index === 0) continue;
 
-            // Validación de columnas
-            if (count($row) < 6) {
-                $errores[] = "Fila $index: Número de columnas inválido.";
-                continue;
+                if (empty(array_filter($row, fn($value) => $value !== null && trim((string) $value) !== ''))) {
+                    continue;
+                }
+
+                if (count($row) < 6) {
+                    $errores[] = "Fila $index: Número de columnas inválido.";
+                    continue;
+                }
+
+                $clave = trim((string) $row[0]);
+                $telebachillerato = trim((string) $row[1]);
+                $clave_ct = trim((string) $row[2]);
+                $municipio = trim((string) $row[3]);
+                $encargado = trim((string) $row[4]);
+                $correo = trim((string) $row[5]);
+
+                if ($clave === '' || $telebachillerato === '') {
+                    $errores[] = "Fila $index: Clave o telebachillerato vacíos.";
+                    continue;
+                }
+
+                $existe = DB::table('centros')
+                    ->whereRaw('LOWER(clave) = ?', [strtolower($clave)])
+                    ->exists();
+
+                if ($existe) {
+                    $errores[] = "Fila $index: Centro duplicado ($clave).";
+                    continue;
+                }
+
+                DB::table('centros')->insert([
+                    'clave' => $clave,
+                    'telebachillerato' => $telebachillerato,
+                    'clave_ct' => $clave_ct !== '' ? $clave_ct : null,
+                    'municipio' => $municipio !== '' ? $municipio : null,
+                    'encargado' => $encargado !== '' ? $encargado : null,
+                    'correo' => $correo !== '' ? $correo : null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $insertados++;
             }
 
-            $clave      = trim($row[0]);
-            $telebachillerato = trim($row[1]);
-            $clave_ct   = trim($row[2]);
-            $municipio  = trim($row[3]);
-            $encargado  = trim($row[4]);
-            $correo     = trim($row[5]);
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
 
-            if ($clave === "" || $telebachillerato === "") {
-                $errores[] = "Fila $index: Clave vacía o telebachillerato vacío.";
-                continue;
-            }
-
-            $existe = DB::table("centros")->where('clave', $clave)->first();
-            if ($existe) {
-                $errores[] = "Fila $index: Centro duplicado ($clave).";
-                continue;
-            }
-
-            DB::table("centros")->insert([
-                'clave' => $clave,
-                'telebachillerato' => $telebachillerato,
-                'clave_ct' => $clave_ct,
-                'municipio' => $municipio,
-                'encargado' => $encargado,
-                'correo' => $correo,
-                'created_at' => now()
-            ]);
-
-            $insertados++;
+            return [
+                'insertados' => 0,
+                'errores' => ['Error al importar centros: ' . $e->getMessage()]
+            ];
         }
 
         return [
@@ -113,15 +127,12 @@ class ImportadorCompletoController extends Controller
         ];
     }
 
-    // ---------------------------------------------------------
-    // IMPORTADOR DE ALUMNOS
-    // ---------------------------------------------------------
     private function importarAlumnos($file)
     {
         try {
             $extension = strtolower($file->getClientOriginalExtension());
-            
-            if($extension === 'csv') {
+
+            if ($extension === 'csv') {
                 $reader = IOFactory::createReader('Csv');
                 $reader->setDelimiter(',');
                 $reader->setEnclosure('"');
@@ -129,10 +140,9 @@ class ImportadorCompletoController extends Controller
             } else {
                 $reader = IOFactory::createReader('Xlsx');
             }
-            
+
             $spreadsheet = $reader->load($file->getPathname());
             $rows = $spreadsheet->getActiveSheet()->toArray();
-
         } catch (\Exception $e) {
             return [
                 'insertados' => 0,
@@ -150,88 +160,151 @@ class ImportadorCompletoController extends Controller
         $insertados = 0;
         $errores = [];
 
-        foreach ($rows as $index => $row) {
+        DB::beginTransaction();
 
-            if ($index === 0) continue;
+        try {
+            foreach ($rows as $index => $row) {
+                if ($index === 0) continue;
 
-            // Validación de columnas
-            if (count($row) < 11) {
-                $errores[] = "Fila $index: Número de columnas inválido.";
-                continue;
-            }
-
-            $matricula   = trim($row[0]);
-            $centro_nom  = trim($row[1]);
-            $estatus     = trim($row[2]);
-            $nombre      = trim($row[3]);
-            $paterno     = trim($row[4]);
-            $materno     = trim($row[5]);
-            $genero      = trim($row[6]);
-            $generacion  = intval($row[7]);
-            $municipio   = trim($row[8]);
-            $pais        = trim($row[9]);
-            $fecha       = trim($row[10]);
-
-            if ($matricula === "") {
-                $errores[] = "Fila $index: Matrícula vacía.";
-                continue;
-            }
-
-            $existe = DB::table('alumnos')->where('matricula', $matricula)->first();
-            if ($existe) {
-                $errores[] = "Fila $index: Matrícula duplicada ($matricula).";
-                continue;
-            }
-
-            // Coincidencia parcial del nombre del centro
-            $centro = DB::table('centros')
-            ->where('telebachillerato', 'LIKE', "%$centro_nom%")
-            ->first();
-
-            if (!$centro) {
-                $errores[] = "Fila $index: Centro no encontrado ($centro_nom).";
-                continue;
-            }
-
-            $centro_id = $centro->id;
-
-            // Normalización de fecha MM/DD/YYYY → YYYY-MM-DD
-            if (!$fecha || trim($fecha) === "") {
-                $fecha = null;
-            } else {
-                $partes = explode('/', $fecha);
-
-                if (count($partes) === 3) {
-                    $mes = str_pad($partes[0], 2, '0', STR_PAD_LEFT);
-                    $dia = str_pad($partes[1], 2, '0', STR_PAD_LEFT);
-                    $anio = $partes[2];
-                    $fecha = "$anio-$mes-$dia";
-                } else {
-                    $fecha = null;
+                if (empty(array_filter($row, fn($value) => $value !== null && trim((string) $value) !== ''))) {
+                    continue;
                 }
+
+                if (count($row) < 11) {
+                    $errores[] = "Fila $index: Número de columnas inválido.";
+                    continue;
+                }
+
+                $matricula = trim((string) $row[0]);
+                $centro_nom = trim((string) $row[1]);
+                $estatus = trim((string) $row[2]);
+                $nombre = trim((string) $row[3]);
+                $paterno = trim((string) $row[4]);
+                $materno = trim((string) $row[5]);
+                $genero = trim((string) $row[6]);
+                $generacion = trim((string) $row[7]);
+                $municipio = trim((string) $row[8]);
+                $pais = trim((string) $row[9]);
+                $fecha = trim((string) $row[10]);
+
+                if ($matricula === '') {
+                    $errores[] = "Fila $index: Matrícula vacía.";
+                    continue;
+                }
+
+                $existe = DB::table('alumnos')
+                    ->whereRaw('LOWER(matricula) = ?', [strtolower($matricula)])
+                    ->exists();
+
+                if ($existe) {
+                    $errores[] = "Fila $index: Matrícula duplicada ($matricula).";
+                    continue;
+                }
+
+                $centro = DB::table('centros')
+                    ->whereRaw('LOWER(telebachillerato) LIKE ?', ['%' . strtolower($centro_nom) . '%'])
+                    ->first();
+
+                if (!$centro) {
+                    $errores[] = "Fila $index: Centro no encontrado ($centro_nom).";
+                    continue;
+                }
+
+                $fechaNacimiento = null;
+
+                if ($fecha !== '') {
+                    $fechaNacimiento = $this->normalizarFecha($fecha);
+                    if ($fechaNacimiento === null) {
+                        $errores[] = "Fila $index: Fecha inválida ($fecha).";
+                        continue;
+                    }
+                }
+
+                DB::table('alumnos')->insert([
+                    'matricula' => $matricula,
+                    'centro_id' => $centro->id,
+                    'estatus' => $estatus !== '' ? $estatus : null,
+                    'nombre' => $nombre !== '' ? $nombre : null,
+                    'paterno' => $paterno !== '' ? $paterno : null,
+                    'materno' => $materno !== '' ? $materno : null,
+                    'genero' => $genero !== '' ? $genero : null,
+                    'generacion' => $generacion !== '' ? (int) $generacion : null,
+                    'municipio_residencia' => $municipio !== '' ? $municipio : null,
+                    'pais_nacimiento' => $pais !== '' ? $pais : null,
+                    'fecha_nacimiento' => $fechaNacimiento,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $insertados++;
             }
 
-            DB::table('alumnos')->insert([
-                'matricula' => $matricula,
-                'centro_id' => $centro_id,
-                'estatus' => $estatus,
-                'nombre' => $nombre,
-                'paterno' => $paterno,
-                'materno' => $materno,
-                'genero' => $genero,
-                'generacion' => $generacion,
-                'municipio_residencia' => $municipio,
-                'pais_nacimiento' => $pais,
-                'fecha_nacimiento' => $fecha,
-                'created_at' => now()
-            ]);
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
 
-            $insertados++;
+            return [
+                'insertados' => 0,
+                'errores' => ['Error al importar alumnos: ' . $e->getMessage()]
+            ];
         }
 
         return [
             'insertados' => $insertados,
             'errores' => $errores
         ];
+    }
+
+    private function normalizarFecha($fecha)
+    {
+        $fecha = trim((string) $fecha);
+
+        if ($fecha === '0000-00-00' || $fecha === '00/00/0000' || $fecha === '00/00/00') {
+            return null;
+        }
+
+        // Soporta formatos: MM/DD/YYYY, DD/MM/YYYY, YYYY-MM-DD
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $fecha)) {
+            return $fecha;
+        }
+
+        if (preg_match('/^\d{1,2}\/\d{1,2}\/\d{4}$/', $fecha)) {
+            $partes = explode('/', $fecha);
+
+            if (count($partes) !== 3) {
+                return null;
+            }
+
+            [$mes, $dia, $anio] = $partes;
+
+            if (!checkdate((int) $mes, (int) $dia, (int) $anio)) {
+                return null;
+            }
+
+            return sprintf('%04d-%02d-%02d', (int) $anio, (int) $mes, (int) $dia);
+        }
+
+        if (preg_match('/^\d{1,2}\/\d{1,2}\/\d{2}$/', $fecha)) {
+            $partes = explode('/', $fecha);
+
+            if (count($partes) !== 3) {
+                return null;
+            }
+
+            [$dia, $mes, $anio] = $partes;
+
+            $anio = (int) $anio;
+            if ($anio < 100) {
+                $anio += 2000;
+            }
+
+            if (!checkdate((int) $mes, (int) $dia, $anio)) {
+                return null;
+            }
+
+            return sprintf('%04d-%02d-%02d', $anio, (int) $mes, (int) $dia);
+        }
+
+        return null;
     }
 }
